@@ -4,6 +4,71 @@ document.addEventListener("DOMContentLoaded", () => {
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
 
+  function setEmptyParticipantsState(participantsList) {
+    if (participantsList.children.length !== 0) {
+      return;
+    }
+
+    const emptyState = document.createElement("li");
+    emptyState.className = "participants-empty";
+    emptyState.textContent = "No participants yet";
+    participantsList.appendChild(emptyState);
+  }
+
+  function addParticipantToCard(activityCard, activityName, email) {
+    const participantsList = activityCard.querySelector(".participants-list");
+    const availabilityCount = activityCard.querySelector(".availability-count");
+    participantsList.querySelector(".participants-empty")?.remove();
+
+    const participant = document.createElement("li");
+    participant.className = "participant-item";
+
+    const participantEmail = document.createElement("span");
+    participantEmail.className = "participant-email";
+    participantEmail.textContent = email;
+    participant.appendChild(participantEmail);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "remove-participant";
+    removeButton.setAttribute("aria-label", `Remove ${email} from ${activityName}`);
+    removeButton.title = `Remove ${email} from ${activityName}`;
+
+    const trashIcon = document.createElement("span");
+    trashIcon.className = "trash-icon";
+    trashIcon.setAttribute("aria-hidden", "true");
+    removeButton.appendChild(trashIcon);
+
+    removeButton.addEventListener("click", async () => {
+      removeButton.disabled = true;
+
+      try {
+        const response = await fetch(
+          `/activities/${encodeURIComponent(activityName)}/signup?email=${encodeURIComponent(email)}`,
+          { method: "DELETE" }
+        );
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.detail || "Unable to remove participant");
+        }
+
+        participant.remove();
+        availabilityCount.textContent = String(Number(availabilityCount.textContent) + 1);
+        setEmptyParticipantsState(participantsList);
+      } catch (error) {
+        removeButton.disabled = false;
+        messageDiv.textContent = error.message || "Failed to remove participant";
+        messageDiv.className = "error";
+        messageDiv.classList.remove("hidden");
+        console.error("Error removing participant:", error);
+      }
+    });
+
+    participant.appendChild(removeButton);
+    participantsList.appendChild(participant);
+  }
+
   // Function to fetch activities from API
   async function fetchActivities() {
     try {
@@ -17,6 +82,7 @@ document.addEventListener("DOMContentLoaded", () => {
       Object.entries(activities).forEach(([name, details]) => {
         const activityCard = document.createElement("div");
         activityCard.className = "activity-card";
+        activityCard.dataset.activityName = name;
 
         const spotsLeft = details.max_participants - details.participants.length;
 
@@ -24,8 +90,22 @@ document.addEventListener("DOMContentLoaded", () => {
           <h4>${name}</h4>
           <p>${details.description}</p>
           <p><strong>Schedule:</strong> ${details.schedule}</p>
-          <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
+          <p><strong>Availability:</strong> <span class="availability-count">${spotsLeft}</span> spots left</p>
         `;
+        const availabilityCount = activityCard.querySelector(".availability-count");
+
+        const participantsHeading = document.createElement("h5");
+        participantsHeading.className = "participants-heading";
+        participantsHeading.textContent = "Participants";
+        activityCard.appendChild(participantsHeading);
+
+        const participantsList = document.createElement("ul");
+        participantsList.className = "participants-list";
+        activityCard.appendChild(participantsList);
+        details.participants.forEach((email) => {
+          addParticipantToCard(activityCard, name, email);
+        });
+        setEmptyParticipantsState(participantsList);
 
         activitiesList.appendChild(activityCard);
 
@@ -61,6 +141,13 @@ document.addEventListener("DOMContentLoaded", () => {
       if (response.ok) {
         messageDiv.textContent = result.message;
         messageDiv.className = "success";
+        const activityCard = Array.from(activitiesList.querySelectorAll(".activity-card"))
+          .find((card) => card.dataset.activityName === activity);
+        if (activityCard) {
+          addParticipantToCard(activityCard, activity, email);
+          const availabilityCount = activityCard.querySelector(".availability-count");
+          availabilityCount.textContent = String(Number(availabilityCount.textContent) - 1);
+        }
         signupForm.reset();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
